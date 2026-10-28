@@ -69,10 +69,19 @@ def standardize_dataframe(raw_df):
     """
     Standardize raw Kaggle Space_Corrected.csv or sample dataset
     into a clean schema with guaranteed columns:
-    'company', 'rocket', 'launch_date', 'year', 'launch_site', 'country',
+    'id', 'company', 'rocket', 'launch_date', 'year', 'launch_site', 'country',
     'mission_status', 'mission_type', 'detail'
     """
+    raw_df = raw_df.reset_index(drop=True)
     clean_df = pd.DataFrame()
+
+    # 0. Deterministic unique integer ID
+    if 'id' in raw_df.columns:
+        clean_df['id'] = pd.to_numeric(raw_df['id'], errors='coerce').fillna(0).astype(int)
+        if (clean_df['id'] <= 0).any() or clean_df['id'].duplicated().any():
+            clean_df['id'] = list(range(1, len(raw_df) + 1))
+    else:
+        clean_df['id'] = list(range(1, len(raw_df) + 1))
 
     # 1. Company
     if 'Company Name' in raw_df.columns:
@@ -257,7 +266,8 @@ class SpaceMissionDataSource:
         min_len = min(len(v) for v in sample_data.values())
         sample_data = {k: v[:min_len] for k, v in sample_data.items()}
         
-        # Explicitly extract and guarantee 'year' and 'detail' columns
+        # Explicitly extract and guarantee 'id', 'year' and 'detail' columns
+        sample_data['id'] = list(range(1, min_len + 1))
         sample_data['year'] = [int(d.split('-')[0]) for d in sample_data['launch_date']]
         sample_data['detail'] = [f"{r} mission" for r in sample_data['rocket']]
 

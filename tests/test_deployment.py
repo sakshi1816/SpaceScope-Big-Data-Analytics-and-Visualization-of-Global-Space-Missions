@@ -402,3 +402,134 @@ class TestEdgeCasesAndBoundaries:
         assert r_post.status_code == 405
         assert r_post.get_json() == {'error': 'Method not allowed'}
 
+
+class TestCRUDAndBDTFeatures:
+    """Validate CRUD operations, BDT benchmarks, DAG plan, 5 Vs, and streaming simulation"""
+
+    def test_crud_lifecycle(self, client):
+        """Full CRUD lifecycle: Create, Read, Update, Delete with analytical consistency"""
+        # 1. CREATE
+        create_payload = {
+            "company": "Artemis Test Agency",
+            "rocket": "SLS Block 1B",
+            "launch_date": "2026-11-20",
+            "country": "USA",
+            "launch_site": "LC-39B, Kennedy Space Center",
+            "mission_status": "Success",
+            "mission_type": "Lunar Exploration",
+            "detail": "Test Crewed Lunar Orbital Mission"
+        }
+        res_create = client.post('/api/missions', json=create_payload)
+        assert res_create.status_code == 201
+        created_data = res_create.get_json()
+        assert created_data['status'] == 'success'
+        new_id = created_data['data']['id']
+        assert new_id is not None
+
+        # 2. READ BY ID
+        res_get = client.get(f'/api/missions/{new_id}')
+        assert res_get.status_code == 200
+        fetched = res_get.get_json()['data']
+        assert fetched['company'] == "Artemis Test Agency"
+        assert fetched['rocket'] == "SLS Block 1B"
+        assert fetched['year'] == 2026
+
+        # 3. UPDATE
+        update_payload = {
+            "company": "Artemis Test Agency Updated",
+            "rocket": "SLS Block 2 Cargo",
+            "mission_status": "Partial"
+        }
+        res_put = client.put(f'/api/missions/{new_id}', json=update_payload)
+        assert res_put.status_code == 200
+        updated = res_put.get_json()['data']
+        assert updated['company'] == "Artemis Test Agency Updated"
+        assert updated['rocket'] == "SLS Block 2 Cargo"
+        assert updated['mission_status'] == "Partial"
+
+        # 4. DELETE
+        res_del = client.delete(f'/api/missions/{new_id}')
+        assert res_del.status_code == 200
+        del_data = res_del.get_json()
+        assert del_data['status'] == 'success'
+
+        # Verify it no longer exists
+        res_after = client.get(f'/api/missions/{new_id}')
+        assert res_after.status_code == 404
+
+    def test_create_mission_validation(self, client):
+        """POST /api/missions returns HTTP 400 when required fields are missing"""
+        res_missing = client.post('/api/missions', json={"country": "USA"})
+        assert res_missing.status_code == 400
+        assert 'error' in res_missing.get_json()
+
+    def test_bdt_benchmarks(self, client):
+        """GET /api/bdt/benchmarks returns empirical 1x and 5x performance comparisons"""
+        res = client.get('/api/bdt/benchmarks')
+        assert res.status_code == 200
+        data = res.get_json()
+        assert 'metrics' in data
+        assert '1x' in data['metrics']
+        assert '5x' in data['metrics']
+        assert data['metrics']['1x']['records'] == 4324
+        assert data['metrics']['5x']['records'] in (21620, 21621)
+
+    def test_bdt_dag_plan(self, client):
+        """GET /api/bdt/dag exposes Spark Catalyst execution pipeline and stage nodes"""
+        res = client.get('/api/bdt/dag')
+        assert res.status_code == 200
+        data = res.get_json()
+        assert 'stages' in data
+        assert len(data['stages']) >= 4
+        stage_names = [s.get('name', '') for s in data['stages']]
+        assert any('Partition' in n or 'Scan' in n or 'File' in n for n in stage_names)
+        assert any('Shuffle' in n or 'Aggregation' in n for n in stage_names)
+
+    def test_bdt_5vs_matrix(self, client):
+        """GET /api/bdt/5vs returns the 5 V's of Big Data specifications"""
+        res = client.get('/api/bdt/5vs')
+        assert res.status_code == 200
+        data = res.get_json()
+        assert 'matrix' in data
+        matrix = data['matrix']
+        assert len(matrix) == 5
+        v_names = [item['v'].lower() for item in matrix]
+        assert set(v_names) == {'volume', 'velocity', 'variety', 'veracity', 'value'}
+
+    def test_telemetry_status(self, client):
+        """GET /api/telemetry/status returns engine readiness and partition counts"""
+        res = client.get('/api/telemetry/status')
+        assert res.status_code == 200
+        data = res.get_json()
+        assert data.get('status') == 'online'
+        assert 'metrics' in data
+        assert data['metrics']['spark_partitions'] == 4
+
+    def test_simulate_stream_launch(self, client):
+        """POST /api/bdt/telemetry/simulate streams a new launch into the lakehouse"""
+        res = client.post('/api/bdt/telemetry/simulate', json={})
+        assert res.status_code == 200
+        data = res.get_json()
+        assert data.get('status') == 'success'
+        assert 'event' in data
+        assert 'telemetry' in data
+        assert 'micro_batch_id' in data['telemetry']
+
+    def test_reset_dataset_endpoint(self, client):
+        """POST /api/missions/reset restores dataset to baseline records"""
+        res = client.post('/api/missions/reset')
+        assert res.status_code == 200
+        assert res.get_json().get('status') == 'success'
+
+    def test_frontend_workspace_navigation_and_crud(self, client):
+        """GET / serves the redesigned dashboard with Workspace Switcher, CRUD Studio, and BDT Lab"""
+        res = client.get('/')
+        assert res.status_code == 200
+        html = res.get_data(as_text=True)
+        assert 'Mission Operations Studio' in html
+        assert 'BDT Spark Engine' in html
+        assert 'workspace-nav' in html
+        assert 'bdtBenchmarkChart' in html
+        assert 'five-vs-grid' in html
+
+
